@@ -1111,3 +1111,15 @@ Root cause: register pressure limits warp occupancy. 128 registers/thread means 
 Fix direction: reduce SSA live ranges in the IR passes (DeadCodeElimination, SsaRewrite, ConstantPropagation) so the NVIDIA driver compiler uses fewer registers. This is compiler engineering, not a config change.
 
 Note: this capture was of the 2D welcome screen (frame 2326). The 3D scene hot shader cs:0x618f2427a8040fcf was not captured. A 3D scene capture needs a longer countdown or manual F11 timing.
+
+---
+
+## 2026-10-29 - register/occupancy avenue CLOSED for cs:0x618f2427a8040fcf (measured, not assumed).
+
+Device report: subgroups default 32, min 32, max 32; requiredSubgroupSizeStages 0x3fff (compute included); compute wave64 = two lanes per invocation. The native wave64 path is blocked by a single gate, maxSubgroupSize >= 64 (vulkanWindow.cpp:1272), so wave64 compute runs as two guest lanes per 32-wide invocation (shader.h:300) and every live value is held twice: cs618f.spvasm has 2,000 OpPhi for ~1,000 values, 562 ballots, 414 OpArrayLength, 830 loads, 14 loops, all confirmed against 16.18. The shader is width-independent (0 reads of OpSubgroupSize / OpSubgroupLocalInvocationId), so the duplication is a hardware-limit artefact.
+
+DeadCodeElimination / SsaRewrite cannot remove it; only a native 64-wide compute subgroup can and this device cannot provide one. Do not propose SSA live-range work for this shader again.
+
+NVIDIA-SPECIFIC: an RDNA device reports max 64, takes the native path (deviceCompat.h:37), and does not duplicate - untested, worth one run if AMD hardware is available. Ceiling reminder: skipping the shader entirely is +19% (:987), so even a perfect version is ~10 fps from here.
+
+What was proven: this particular shader cannot be made faster by compiler work on this hardware, and 128 registers/thread is a consequence of emulating PS5 wave64 on a 32-wide device rather than a bug to be optimised away. The scene has a measured ceiling of ~10-12 fps from incremental work (AGENTSGT7.md:990) and the limiter is a latency loop, not this shader.
