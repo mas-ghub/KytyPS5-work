@@ -1075,3 +1075,39 @@ New launcher option: `gt7boot.ps1 -SkipHotShader` (drops the launches of `cs:0x6
 - The clone stays OPT-IN (`KYTY_CFG_CLONE_REGIONS=1`, `CodegenOptions::cfg_clone_regions`) until it has been checked on more games; recommended ON for R-Type (2.4 -> 28 fps Hangar), neutral on GT7.
 - Fair A/B of int21's 12 new preset keys (warm cache, clone on, settle 5 min, 120 s): `gt7_i` keys ON **8.36 fps** (GPU 158 W) vs `gt7_j` keys OFF **6.50 fps** (GPU 195 W) => the keys are worth ~+29 % on GT7; keep the int21 preset as shipped.
 - Summary of this session's GT7 numbers (same route/scene): old `kyty_gt7.exe` 7.28 | int21p port, clone off 7.36 | clone on 8.36 | clone on + keys off 6.50. Target is still 50 fps; the limiter is the submit/complete latency loop (see playbook 10j), not the GPU.
+
+---
+
+## 2026-10-29 (session, Claude): XFrameReuse + QUIET_LOCKSTEP A/B on int21 GT7
+
+Fresh measurement (warm cache, 3D scene, KYTY_CP_COMMIT_STATS=1 + KYTY_CP_GAP_STATS=1):
+- Baseline: 120.04 ms/frame (~8.3 fps), commit 63.50 (4545/f, 53% of wall), headwait.barrier 17.485 (1950.9/f), gpuwait.drain 9.122, starved 2.157.
+- CommitStats: start 39.1% (17225 draws, 545.77 us/draw), cont 53.7% (23689 draws, 6.23 us/draw), other 7.2%.
+
+A/B results:
+1. XFrameReuse=on, KYTY_TEXTURE_MEMO_SLOTS=32768: 112.56 ms/frame (~8.9 fps), commit 57.74; second window 136.99 ms/frame (~7.3 fps), commit 57.13. Store 98.6% found, 88.2% revalidated. No fps gain — commit dropped ~6ms but headwait.barrier rose. Confirms earlier negative result.
+2. KYTY_QUIET_LOCKSTEP=1: 148.47 ms/frame (~6.7 fps), commit 81.96, headwait.barrier 13.700; second window 130.19 ms/frame (~7.7 fps), commit 70.91, headwait.barrier 25.534. Worse — commit went up, fps down. Dead end.
+
+Config-level levers exhausted. Remaining ceilings: front reads +18%, hot shader chain +19% (needs Nsight), GPU power +10%. Stacked best case ~10-12 fps. 30+ fps needs architectural change.
+
+---
+
+## 2026-10-29 (session, Claude): Nsight GPU Trace of GT7 2D welcome screen
+
+Captured frame 2326 (2D welcome screen, not 3D scene). GPU Trace replay showed:
+- Dominant shader: Compute 0x730768a3d8e98aa9 (comp.10000.spv), 100% of GPU samples
+- Registers: 128 per thread (extremely high — occupancy killer)
+- # Warps: 16 (low, limited by register pressure)
+- Avg Warp Latency: 879,190 (very high)
+- Top stall: WAIT at 60.7% (threads blocked)
+- LGSB stall: 239,651 samples (local/global sync barrier stalls)
+- Active Threads/Warp: 28.2 (88.1% coherence — good)
+- SM Throughput: 7.1%, VRAM Throughput: 1.4%, L2: 0.5%
+- CS Warp Occupancy: 1.7% (0.8 warps active)
+- Unallocated Warps: 41.6%
+
+Root cause: register pressure limits warp occupancy. 128 registers/thread means few warps can run per SM. Threads spend 60.7% of time in WAIT stalls.
+
+Fix direction: reduce SSA live ranges in the IR passes (DeadCodeElimination, SsaRewrite, ConstantPropagation) so the NVIDIA driver compiler uses fewer registers. This is compiler engineering, not a config change.
+
+Note: this capture was of the 2D welcome screen (frame 2326). The 3D scene hot shader cs:0x618f2427a8040fcf was not captured. A 3D scene capture needs a longer countdown or manual F11 timing.
