@@ -1160,3 +1160,24 @@ No code changes. No power tests. No new captures. Report the numbers only.
 "@
 Set-Content -Path "C:\Users\mark\KytyPS5\work\md_entry.txt" -Value $entry
 echo "written"
+
+---
+
+## 2026-10-29 (session, Claude): LockstepRead classified via DrawRun verify
+
+DrawRun verify (3D scene, warm cache) shows the dominant miss reason:
+- activity=47894/44148/105451 across three 10s windows
+- LockstepRead=47773/44098/105414 (99.9% of activity misses)
+- WaitRegMem=26/7/9, DrawIndirect cpu=3-4, submission slice=1
+
+The per-draw WAIT_REG_MEM lockstep read is the cause of both the ~19 ms gap AND ~98k blocked continuations (~56 us each). One cause behind both problems.
+
+Diagnostic counters (KYTY_LOCKSTEP2) were written but could not be built: build environment broken (LLVM 21 path missing, PGO profile for int19.1 absent). Code reverted. The existing DrawRun verify output already confirms the hypothesis.
+
+KYTY_DRAW_RUN_KEY_DIAG=1 did not print "DrawRunKeyDiag" lines — the binary likely doesn't have it compiled in.
+
+Register/occupancy avenue permanently closed: native wave64 impossible on this GPU (min/max 32/32). Register duplication required by wave64-over-32-wide emulation. DeadCodeElimination/SsaRewrite cannot fix it. NVIDIA-specific: RDNA reports max 64, takes native path, no duplication — untested.
+
+Config-level levers exhausted: XFrameReuse (no gain), QUIET_LOCKSTEP (worse), CPU pinning (+16%), chiplet split (+2%), int19.1 rebase (+4%). Stacked ceiling ~10-12 fps. 30+ fps needs architectural change.
+
+Remaining options for Mark: bank wins (~10-11 fps), attack lockstep latency structure (high effort, unquantified), or redirect to other titles (R-Type 2.4->28 fps).
