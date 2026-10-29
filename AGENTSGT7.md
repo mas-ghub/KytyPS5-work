@@ -1123,3 +1123,40 @@ DeadCodeElimination / SsaRewrite cannot remove it; only a native 64-wide compute
 NVIDIA-SPECIFIC: an RDNA device reports max 64, takes the native path (deviceCompat.h:37), and does not duplicate - untested, worth one run if AMD hardware is available. Ceiling reminder: skipping the shader entirely is +19% (:987), so even a perfect version is ~10 fps from here.
 
 What was proven: this particular shader cannot be made faster by compiler work on this hardware, and 128 registers/thread is a consequence of emulating PS5 wave64 on a 32-wide device rather than a bug to be optimised away. The scene has a measured ceiling of ~10-12 fps from incremental work (AGENTSGT7.md:990) and the limiter is a latency loop, not this shader.
+---
+
+## 2026-10-29 - clean baseline + skip pair (interleaved, warm cache)
+
+Baseline (warm, 3D race scene): 9.23 fps, 108.32 ms/frame, 190.9 W, 4593 draws/frame. CpGaps 10s: frames 93, wall 108.32 ms/frame | commit 52.69 (4593/f) | gap 55.63 = headwait.barrier 19.329 (2178.5/f) gpuwait.drain 9.211 (3.1/f) idle 4.608 (1.6/f) starved 2.289 (187.3/f) protect 2.243 (327.9/f) submitwait 1.483 (2.7/f) slice 0.657 (108.9/f) prog.materialize 0.273 (121.5/f) headself 0.268 (11.0/f) otherop 0.099 (146.5/f) eop 0.085 (88.0/f) drawop 0.053 (376.6/f) gc 0.030 (17.1/f) fault 0.023 (10.9/f) | in commit: prog.key 0.002 prog.materialize 0.033 prog.permutation 0.001 flush 0.003 gpuwait.drain 0.057 gpuwait.other 0.034 recorder 0.095 texupload 0.674 protect 0.127 | drains/f: write 0.12 current 0.00 unbounded 0.00 other 0.01 cp-thread 1.01 side-flushes 0.43 side-flush-copies 0.43
+
+(a) KYTY_GT7_SKIP_CS=618f2427a8040fcf (drop dispatch): 9.24 fps (108.22 ms), 11.60 fps (86.23 ms), GPU 184.50 W.
+CpGaps: frames 93, wall 108.22 ms/frame | commit 35.86 (2469/f) | gap 72.35 = headwait.barrier 19.941 (2010.0/f) fault 11.342 (215.3/f) gpuwait.drain 8.958 (10.0/f) service 5.728 (208.6/f) protect 4.404 (1178.0/f) disp.rebind 3.617 starved 2.520 (5747.8/f) prog.materialize 2.120 (1367.3/f) idle 1.804 (7.9/f) recorder 1.423 (120.5/f) disp.emit 1.417 submitwait 0.892 (2.1/f) otherop 0.881 (5499.1/f) disp.bda 0.876 resolver 0.800 (20.5/f) headself 0.784 (26.4/f) disp.bind 0.716 slice 0.678 (75.8/f) disp.other 0.658 (2682.2/f) prog.prepare 0.558 (1341.1/f) eop 0.508 (365.2/f) writedata 0.446 (264.4/f) drawop 0.336 (2469.6/f) disp.program 0.181 gc 0.166 (52.9/f) prog.key 0.087 (1369.3/f) wait 0.081 (304.4/f) flush 0.076 (318.8/f) prog.permutation 0.072 (1334.1/f) gpuwait.other 0.055 (0.7/f) disp.pipeline 0.051 headwait.deep 0.032 texupload 0.029 (40.9/f) eventwrite 0.016 (243.1/f) headwait.shallow 0.016 dma 0.012 (2.0/f) loop 0.074
+CpGaps: frames 116, wall 86.23 ms/frame | commit 29.31 (3065/f) | gap 56.92 = headwait.barrier 25.377 (2626.4/f) gpuwait.drain 5.599 (5.7/f) service 3.387 (129.4/f) protect 2.867 (530.3/f) starved 2.830 (6668.7/f) fault 2.736 (123.8/f) disp.rebind 1.790 recorder 1.419 (88.2/f) prog.materialize 1.334 (817.9/f) disp.emit 1.021 otherop 0.921 (6395.2/f) resolver 0.831 (25.2/f) disp.bda 0.796 submitwait 0.793 (2.4/f) idle 0.646 (1.0/f) slice 0.608 (88.6/f) disp.bind 0.580 eop 0.560 (392.7/f) headself 0.539 (21.6/f) drawop 0.407 (3065.0/f) disp.other 0.346 (1586.0/f) prog.prepare 0.345 (793.0/f) gpuwait.other 0.280 (1.3/f) gc 0.191 (61.2/f) disp.program 0.126 writedata 0.113 (64.0/f) wait 0.087 (326.8/f) flush 0.067 (346.0/f) prog.key 0.065 (819.9/f) prog.permutation 0.058 (788.4/f) disp.pipeline 0.031 texupload 0.029 (40.3/f) headwait.deep 0.027 eventwrite 0.018 (277.3/f) dma 0.011 (2.0/f) headwait.shallow 0.009 loop 0.078
+
+(b) KYTY_SKIP_CS_BUILD=618f2427a8040fcf (empty shader, dispatch runs): 10.72 fps (93.29 ms), 11.52 fps (86.80 ms), GPU 189.90 W.
+CpGaps: frames 108, wall 93.29 ms/frame | commit 38.19 (2983/f) | gap 55.10 = headwait.barrier 23.990 (2491.5/f) gpuwait.drain 5.599 (6.0/f) fault 2.858 (122.2/f) service 3.339 (126.3/f) protect 2.830 (515.4/f) starved 2.681 (6321.3/f) disp.rebind 1.713 recorder 1.618 (85.0/f) prog.materialize 1.260 (763.2/f) disp.emit 1.109 otherop 0.895 (6054.6/f) resolver 0.826 (24.5/f) idle 0.778 (1.1/f) disp.bda 0.774 slice 0.585 (86.0/f) disp.bind 0.554 eop 0.546 (384.1/f) submitwait 0.543 (2.0/f) headself 0.490 (19.3/f) drawop 0.467 (2983.2/f) disp.other 0.332 (1488.1/f) prog.prepare 0.340 (744.0/f) gc 0.186 (58.6/f) disp.program 0.114 writedata 0.104 (64.3/f) gpuwait.other 0.096 (1.1/f) wait 0.091 (325.1/f) prog.key 0.069 (765.2/f) flush 0.065 (341.9/f) prog.permutation 0.053 (730.4/f) headwait.deep 0.038 disp.pipeline 0.029 eventwrite 0.017 (265.0/f) headwait.shallow 0.014 texupload 0.013 (38.5/f) dma 0.011 (2.0/f) loop 0.073
+CpGaps: frames 116, wall 86.80 ms/frame | commit 28.73 (3118/f) | gap 58.07 = headwait.barrier 23.093 (2527.2/f) gpuwait.drain 5.781 (6.3/f) fault 4.584 (135.1/f) service 3.674 (137.6/f) protect 3.209 (639.1/f) starved 2.600 (6063.6/f) disp.rebind 2.177 prog.materialize 1.478 (941.8/f) recorder 1.471 (93.6/f) disp.emit 1.148 disp.bda 0.966 idle 0.943 (1.1/f) otherop 0.910 (5815.9/f) resolver 0.816 (25.7/f) disp.bind 0.694 slice 0.605 (84.1/f) headself 0.532 (19.6/f) eop 0.525 (354.2/f) drawop 0.487 (3118.7/f) disp.other 0.415 (1857.5/f) prog.prepare 0.406 (928.8/f) submitwait 0.332 (1.6/f) gc 0.208 (52.9/f) gpuwait.other 0.200 (1.1/f) writedata 0.173 (111.3/f) disp.program 0.133 wait 0.090 (306.7/f) prog.key 0.076 (943.8/f) flush 0.068 (350.7/f) prog.permutation 0.058 (903.6/f) headwait.deep 0.058 disp.pipeline 0.035 eventwrite 0.016 (235.3/f) texupload 0.013 (36.7/f) headwait.shallow 0.012 dma 0.012 (2.0/f) loop 0.072
+
+Key findings:
+1. Baseline: 9.23 fps (108.32 ms/frame), 190.9 W, 4593 draws/frame. This is the new reference. The earlier 2.03 fps / 55 W reading was invalid (GPU idle, screen/lock artefact) - discard it, there is no regression.
+
+2. Both skip switches reduce draws/frame by ~1/3 (base 4593 -> (a) 2469/3065, (b) 2983/3118) and fault jumps from 0.02 ms to 2.7-11.3 ms. The shader is load-bearing (visibility/LOD/indirect args), so both switches remove work rather than isolating cost. The chain-vs-body comparison is invalid. Do not build anything on the chain-vs-body conclusion.
+
+3. The +19% hot-shader figure (AGENTSGT7.md:987) is confounded for the same reason - it was measured by removing a shader the game needs, so it is not a valid upper bound. Amend that section to say so. The ~10-12 fps "stacked ceiling" at :990 needs re-deriving because one of its four entries is suspect. Do not just delete the number - explain why it was wrong.
+
+4. headwait.barrier is the largest gap item in all five windows, remarkably stable at ~9.5 us per wait:
+   base    19.329 ms (2178.5/f) = 8.9 us
+   (a)     19.941 ms (2010.0/f) = 9.9 us
+   (a)     25.377 ms (2626.4/f) = 9.7 us
+   (b)     23.990 ms (2491.5/f) = 9.6 us
+   (b)     23.093 ms (2527.2/f) = 9.1 us
+   ~2,200-2,600 waits per frame at ~9.5 us each. CPU-side stall, ~18-20% of the frame, grows as a share whenever other costs fall. The one item that is both large and present in every condition.
+
+5. fault is now 0.02 ms/frame at baseline (was 4.5 ms in 2026-10-15 logs). Write-tracking work is done, should not be revisited.
+
+6. idle is 4.6 ms at baseline but ~1.8 ms or less in skip runs - worth understanding separately.
+
+No code changes. No power tests. No new captures. Report the numbers only.
+"@
+Set-Content -Path "C:\Users\mark\KytyPS5\work\md_entry.txt" -Value $entry
+echo "written"
